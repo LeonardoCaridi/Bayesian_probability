@@ -1,0 +1,2 @@
+The associated file contains the data for the GRB classification. Despite the text, these data are from BATSE. 
+The three columns are the logarithm of T_90, its associated error and the hardness ratio.
