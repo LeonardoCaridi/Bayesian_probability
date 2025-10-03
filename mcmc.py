@@ -1,82 +1,26 @@
 import numpy as np
 from scipy.special import logsumexp
 
-"""
-def log_prior(theta, bounds):
 
-    for i in range(theta.shape[0]):
+def log_prior(theta, bounds):
+    """
+    Uniform prior inside the bounds 
+    """
+
+    # Controlla parametri da 1 a 4 (esclude w)
+    for i in range(1, theta.shape[0]):
         if theta[i] < bounds[i][0] or theta[i] > bounds[i][1]:
             return -np.inf
     
-    return 0.0
-"""
-
-
-def log_prior(theta, bounds):
-    """
-    Prior A:
-      - w ~ Beta(2,2)
-      - mu1 ~ Normal(0, 3)
-      - delta ~ HalfNormal(sd=3)  (delta > 0)
-      - sigma1, sigma2 ~ HalfNormal(sd=2)  (sigma > 0)
-    bounds = [[w_min,w_max], [mu1_min,mu1_max], [delta_min,delta_max],
-              [sigma1_min,sigma1_max], [sigma2_min,sigma2_max]]
-    """
-
-    theta = np.atleast_1d(theta)
-    try:
-        w, mu1, delta, s1, s2 = theta.tolist()
-    except Exception:
-        # se theta non decomponibile correttamente
+    # Controllo esplicito su w per non avere valori 0 o 1     
+    if not (0.0 < theta[0] < 1.0):
         return -np.inf
 
-    # Bounds check (uso gli stessi bounds passati)
-    if not (bounds[0][0] <= w <= bounds[0][1]):
-        return -np.inf
-    if not (bounds[1][0] <= mu1 <= bounds[1][1]):
-        return -np.inf
-    if not (bounds[2][0] <= delta <= bounds[2][1]):
-        return -np.inf
-    if not (bounds[3][0] <= s1 <= bounds[3][1]):
-        return -np.inf
-    if not (bounds[4][0] <= s2 <= bounds[4][1]):
-        return -np.inf
-
-    # Additional validity checks (mi assicuro che w sia strettamente tra 0 e 1,
-    # e che delta e sigma siano positivi)
-    if (w <= 0.0) or (w >= 1.0):
-        return -np.inf
-    if (delta <= 0.0) or (s1 <= 0.0) or (s2 <= 0.0):
-        return -np.inf
-
-    # --- Calcolo log-prior (inclusi termini di normalizzazione) ---
-    logp = 0.0
-
-    # Beta(2,2) on w: pdf ∝ w^(1) * (1-w)^(1)
-    # normalization Beta(2,2) = 1/6, quindi logpdf = log(w) + log(1-w) - log(1/6)
-    # possiamo includere la costante, ma non è necessario per MH: la includo per completezza
-    log_beta22_const = -np.log(1.0/6.0)  # = log(6)
-    logp += np.log(w) + np.log(1.0 - w) + log_beta22_const
-
-    # mu1 ~ Normal(0, 3)
-    sd_mu1 = 3.0
-    logp += -0.5 * ((mu1 - 0.0)**2) / (sd_mu1**2) - 0.5 * np.log(2.0 * np.pi * sd_mu1**2)
-
-    # delta ~ HalfNormal(sd=3): pdf(x) = sqrt(2/pi)/sd * exp(-x^2/(2 sd^2))  for x>=0
-    sd_delta = 3.0
-    if delta < 0:
-        return -np.inf
-    log_halfnorm_const = 0.5 * (np.log(2.0) - np.log(np.pi)) - np.log(sd_delta)
-    logp += log_halfnorm_const - 0.5 * (delta**2) / (sd_delta**2)
-
-    # sigma1, sigma2 ~ HalfNormal(sd=2)
-    sd_sigma = 2.0
-    log_halfnorm_const_sigma = 0.5 * (np.log(2.0) - np.log(np.pi)) - np.log(sd_sigma)
-    logp += log_halfnorm_const_sigma - 0.5 * (s1**2) / (sd_sigma**2)
-    logp += log_halfnorm_const_sigma - 0.5 * (s2**2) / (sd_sigma**2)
-
-    return logp
-        
+    # w prior = Beta(2,2) = 6*x*(1-x) 
+    # La normalizzazione non è necessaria (viene levato il 6)
+    logp = np.log(theta[0]) + np.log(1-theta[0])
+    
+    return logp  
 
 def log_T90_distribution(x, theta, sigma_logT90 = 0.0):
     """
@@ -102,24 +46,20 @@ def log_likelihood(x, theta, sigma_logT90 = 0.0):
     # Assumo i T90 indipendenti e sommo su tutte le probabilità: np.sum()
     return np.sum(log_T90_distribution(x, theta, sigma_logT90), axis=0)
 
-def proposal_distribution(x,  rng = None):
+def proposal_distribution(x, init_cov = None, rng = None):
     
     d = x.shape[0]
-    #covariance = 0.01*np.eye(d)
+    if init_cov is None:
+        covariance = 0.01*np.eye(d)
+    else:
+        covariance = init_cov
     """
-    covariance = np.array(([ 1.13628824e-04, 4.76588217e-05, -1.15334653e-05, 4.58064466e-05, -3.70050700e-05],
-                           [ 4.76588217e-05, 1.36494158e-03, -1.20039209e-03, 2.62723113e-04, -1.72044907e-04],
-                           [-1.15334653e-05, -1.20039209e-03, 1.97755195e-03, -1.15824941e-04, 1.69829670e-05],
-                           [ 4.58064466e-05, 2.62723113e-04, -1.15824941e-04, 7.88750561e-04, -1.42154866e-04],
-                           [-3.70050700e-05, -1.72044907e-04, 1.69829670e-05,-1.42154866e-04, 5.66782209e-04]))    
+    covariance = np.array(([ 1.16001274e-04, 4.34444634e-05, -8.75870281e-06, 3.74859215e-05, -2.68890398e-05],
+                           [ 4.34444634e-05, 1.30336403e-03, -1.12672730e-03, 2.51966524e-04, -1.73614797e-04],
+                           [-8.75870281e-06, -1.12672730e-03, 1.90314140e-03, -9.62649007e-05, 8.67849825e-06],
+                           [ 3.74859215e-05, 2.51966524e-04, -9.62649007e-05, 8.14646898e-04, -1.35645581e-04],
+                           [-2.68890398e-05, -1.73614797e-04, 8.67849825e-06, -1.35645581e-04, 5.28118669e-04]))
     """
-    # after adaptive
-    covariance = np.array(([ 1.14004786e-04,  5.80630230e-05, -3.52671514e-05,  5.21672529e-05, -3.06139279e-05],
-                           [ 5.80630230e-05,  1.26252429e-03, -1.07010900e-03,  2.47320530e-04, -1.83853493e-04],
-                           [-3.52671514e-05, -1.07010900e-03,  1.83150662e-03, -9.26694129e-05, -2.11981231e-05],
-                           [ 5.21672529e-05,  2.47320530e-04, -9.26694129e-05,  7.82263540e-04, -1.48238595e-04],
-                           [-3.06139279e-05, -1.83853493e-04, -2.11981231e-05, -1.48238595e-04, 5.46582734e-04]))
-    
     if rng is None:
         rng = np.random
     
@@ -148,7 +88,7 @@ def generate_data(theta_true, N, rng = None, sigma_logT90 = 1.0):
 
     return logT90_gen + rng.normal(0.0, sigma_logT90, size=N)
 
-def metropolis_hastings(theta0, x, bounds, rng = None, sigma_logT90 = 0.0, n = 1000):
+def metropolis_hastings(theta0, x, bounds, init_cov=None, rng = None, sigma_logT90 = 0.0, n = 1000):
     """
     Parametri: 
     - theta0: initial parameters numpy array
@@ -172,7 +112,7 @@ def metropolis_hastings(theta0, x, bounds, rng = None, sigma_logT90 = 0.0, n = 1
     
     for i in range(n):
         
-        theta_t = theta0 + proposal_distribution(theta0, rng = rng)
+        theta_t = theta0 + proposal_distribution(theta0, init_cov=init_cov, rng = rng)
         logP_t = log_posterior(x, theta_t, bounds, sigma_logT90 = sigma_logT90)
         
 #        print('logP proposal = ',logP_t,'logP0 = ',logP0)
@@ -185,8 +125,9 @@ def metropolis_hastings(theta0, x, bounds, rng = None, sigma_logT90 = 0.0, n = 1
         else:
             samples[i,:] = theta0
             rejected    += 1
-        
-        print("iteration {0}: acceptance {1}".format(i,accepted/float(accepted+rejected)))
+
+        if(i % (n*0.05) == 0):
+            print("iteration {0}: acceptance {1}".format(i,accepted/float(accepted+rejected)))
     overall_rate = accepted / float(n)
     print("Adaptive Metropolis finished. Acceptance rate = {:.4f}".format(overall_rate))
     
@@ -221,9 +162,7 @@ def autocorrelation(x, norm=True):
 
     return acf
 
-def init_theta_from_data(x, bounds, rng=None):
-    if rng is None:
-        rng = np.random()
+def init_theta_from_data(x, bounds):
     # percentili utili
     p25 = np.percentile(x, 25)
     p75 = np.percentile(x, 75)
@@ -239,3 +178,18 @@ def init_theta_from_data(x, bounds, rng=None):
                        np.clip(s1_0, bounds[3][0], bounds[3][1]),
                        np.clip(s2_0, bounds[4][0], bounds[4][1])], dtype=np.float64)
     return theta0
+
+def autocorr(x, lag):
+    return np.corrcoef(np.array([x[:-lag], x[lag:]]))[0,1]
+
+def ess(x):
+    n = len(x)
+    # calcolo autocorrelazione fino a quando diventa negativa
+    rho = []
+    for k in range(1, n//2):
+        r = autocorr(x, k)
+        if r <= 0: 
+            break
+        rho.append(r)
+    tau = 1 + 2*np.sum(rho)
+    return n / tau

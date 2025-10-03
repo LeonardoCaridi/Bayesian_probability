@@ -1,10 +1,11 @@
 import os
-from typing import Callable, List, Union, Optional, Sequence, Tuple
+from typing import Callable, List, Union, Optional, Sequence, Tuple, Dict
 
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.gridspec import GridSpec
+from scipy.stats import gaussian_kde
 
 from mcmc import autocorrelation, next_pow_two, log_T90_distribution
 
@@ -484,3 +485,232 @@ def plot_distribution(
     
     plt.show()
     return fig, ax
+
+
+def pairplot(
+    samples: np.ndarray,
+    filename: str,
+    theta_true: Optional[np.ndarray] = None,
+    param_tuples: Optional[Sequence[Tuple[int, str]]] = None,
+    figsize: Tuple[float, float] = (10, 10),
+    bins: str = 30,
+    scatter_alpha: float = 0.35,
+    marker_size: int = 8,
+    show_corr: bool = True,
+    outdir: str = "figure",
+    save: bool = True,
+    contour_levels: Sequence[float] = (0.5, 0.9),
+    contour_linestyles: Sequence[str] = ('--', ':'),
+    kde_gridsize: int = 100,
+) -> Tuple[plt.Figure, Dict[Tuple[int,int], plt.Axes]]:
+    """
+    Parametri
+    ---------
+    samples : np.ndarray
+        Array (n_samples, n_params) con i campioni MCMC.
+    filename : str
+        Name of the file
+    theta_true : np.ndarray
+        Reference values for each parameter; used to draw a vertical line.
+    param_tuples : sequence of (index, label), optional
+        If provided, this controls which columns of samples are plotted and their labels.
+        If None, the first five parameters are used and labelled with defaults.
+        Example: [(0, 'w'), (1, r'$\\mu_1$'), ...]
+    figsize : tuple, optional
+        Figure size in inches. Default (10,10).
+    bins : str or int
+        Number of bins in histograms.
+    scatter_alpha, marker_size : float, int
+    show_corr : bool
+        Print the correlation coefficient in each axes.
+    outdir : str, optional
+        Directory where PNG/PDF files will be saved if `save` is True.
+    save : bool, optional
+        Whether to save the figure files (PNG and PDF). Default True.
+
+    Ritorna
+    -------
+    (fig, axes)
+        fig: oggetto matplotlib.figure.Figure
+        axes: dict con chiavi (i,j) che mappano alle Axes usate (solo per i>=j)
+    """
+
+    samples = np.asarray(samples)
+    n_samples, n_params = samples.shape
+
+    # Choose default parameters if none provided
+    if param_tuples is None:
+        # use up to the first 5 default labels
+        param_tuples = [(i, DEFAULT_PARAM_LABELS[i]) for i in range(min(5, samples.shape[1]))]
+
+    k = len(param_tuples)
+
+    cmap = plt.get_cmap('viridis')
+    colors = [cmap(i) for i in np.linspace(0.15, 0.85, k)]
+
+    # styling
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig = plt.figure(figsize=figsize)
+    gs = GridSpec(k, k, figure=fig, wspace=0.06, hspace=0.06)
+
+    axes = {}
+
+    for i in range(k):
+        idx_i, label_i = param_tuples[i]
+        xi = samples[:, idx_i]
+
+        for j in range(0, i + 1):  # include diagonal
+            idx_j, label_j = param_tuples[j]
+            ax = fig.add_subplot(gs[i, j])
+            axes[(i, j)] = ax
+
+            # diagonal: histogram
+            if i == j:
+                # histogram density
+                ax.hist(xi, bins=bins, density=True, alpha=0.65, facecolor=colors[i],
+                        edgecolor='k', linewidth=0.25)
+                p5, p50, p95 = np.percentile(xi, [5,50,95])
+                ax.axvline(p5, color='k', linestyle=':', linewidth=1.2)
+                ax.axvline(p50, color='k', linestyle='--', linewidth=1.6)
+                ax.axvline(p95, color='k', linestyle=':', linewidth=1.2)
+
+                # true value vertical line
+                if theta_true is not None:
+                    try:
+                        tv = float(theta_true[idx_i])
+                        ax.axvline(tv, color='red', linestyle='-', linewidth=1.6)
+                    except Exception:
+                        pass
+
+                if i < k - 1:
+                    ax.set_xticklabels([])
+                else:
+                    ax.set_xlabel(label_i)
+
+                if j != 0:
+                    ax.set_yticklabels([])
+                else:
+                    ax.set_ylabel('w')
+
+            # off-diagonal lower triangle: scatter 
+            else:
+                xj = samples[:, idx_j]
+                ax.scatter(xj, xi, s=marker_size, alpha=scatter_alpha, linewidth=0)
+
+                # Try to compute 2D KDE and contours for specified probability levels
+                try:
+                    # prepare grid over the data range with small padding
+                    xmin, xmax = np.min(xj), np.max(xj)
+                    ymin, ymax = np.min(xi), np.max(xi)
+                    xpad = 0.05 * (xmax - xmin) if xmax > xmin else 0.1
+                    ypad = 0.05 * (ymax - ymin) if ymax > ymin else 0.1
+                    x_min, x_max = xmin - xpad, xmax + xpad
+                    y_min, y_max = ymin - ypad, ymax + ypad
+
+                    xi_lin = np.linspace(x_min, x_max, kde_gridsize)
+                    yi_lin = np.linspace(y_min, y_max, kde_gridsize)
+                    X, Y = np.meshgrid(xi_lin, yi_lin)
+
+                    # evaluate kde
+                    values = np.vstack([xj, xi])
+                    kde = gaussian_kde(values)
+                    Z = kde(np.vstack([X.ravel(), Y.ravel()])).reshape(X.shape)
+
+                    # compute contour thresholds that enclose given probability mass
+                    dx = (xi_lin[1] - xi_lin[0]) if kde_gridsize > 1 else 1.0
+                    dy = (yi_lin[1] - yi_lin[0]) if kde_gridsize > 1 else 1.0
+                    area = dx * dy
+
+                    z_flat = Z.ravel()
+                    # sort in descending order
+                    idx_sort = np.argsort(z_flat)[::-1]
+                    z_sorted = z_flat[idx_sort]
+                    cumsum = np.cumsum(z_sorted) * area  # cumulative probability as we include high-density cells
+
+                    thresholds = []
+                    for p in contour_levels:
+                        # find smallest density threshold so that cumulative >= p
+                        try:
+                            pos = np.searchsorted(cumsum, p)
+                            # If pos is beyond array, use min density
+                            if pos >= len(z_sorted):
+                                thresh = z_sorted[-1]
+                            else:
+                                thresh = z_sorted[pos]
+                        except Exception:
+                            thresh = np.percentile(z_flat, 100*(1-p))
+                        thresholds.append(thresh)
+
+                    # draw contours: order them so that larger-prob (0.9) is inner; but levels should be increasing
+                    # matplotlib's contour expects levels in increasing order; provide them sorted
+                    # we want e.g. outer contour for 0.5 (lower density threshold) and inner for 0.9 (higher threshold)
+                    # sort thresholds and corresponding linestyles
+                    sorted_pairs = sorted(zip(thresholds, contour_levels, contour_linestyles), key=lambda t: t[0])
+                    level_vals = [p[0] for p in sorted_pairs]
+                    linestyles_sorted = [p[2] for p in sorted_pairs]
+
+                    # plot contours: use black lines and chosen linestyles
+                    cs = ax.contour(X, Y, Z, levels=level_vals, linewidths=1.2, colors='k')
+                    # set linestyles to match sorted order
+                    for cidx, coll in enumerate(cs.collections):
+                        coll.set_linestyle(linestyles_sorted[cidx])
+
+                    # optionally label contours with their probability (small text)
+                    # we avoid clabel to keep plot clean; instead we can add legend entries later if desired
+
+                except Exception:
+                    # if KDE fails (e.g. singular matrix with identical points), just skip contours
+                    pass
+
+                # true value vertical line an horizontal line
+                if theta_true is not None:
+                    try:
+                        th = float(theta_true[idx_i])
+                        tv = float(theta_true[idx_j])
+                        ax.axvline(tv, color='red', linestyle='-', linewidth=1.6)
+                        ax.axhline(th, color='red', linestyle='-', linewidth=1.6)
+                    except Exception:
+                        pass
+                        
+                # correlation
+                if show_corr:
+                    try:
+                        r = np.corrcoef(xj, xi)[0, 1]
+                        ax.text(0.02, 0.92, f"r={r:.2f}", transform=ax.transAxes,
+                                fontsize=15, va='top')
+                    except Exception:
+                        pass
+
+                # tidy ticks: only bottom row has xlabels, only first col has ylabels
+                if i < k - 1:
+                    ax.set_xticklabels([])
+                else:
+                    ax.set_xlabel(label_j)
+
+                    # If this is the bottom-left panel force only two xticks
+                    if j == 0:
+                        ax.set_xticks([0.275,0.325])
+
+                if j != 0:
+                    ax.set_yticklabels([])
+                else:
+                    ax.set_ylabel(label_i)
+
+            # remove top/right spines for a cleaner look
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+
+    # global title and layout
+    fig.suptitle('Pairplot', fontsize=16, y=0.98)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    if save:
+        _ensure_outdir(outdir)
+        png = os.path.join(outdir, filename + '.png')
+        pdf = os.path.join(outdir, filename + '.pdf')
+        fig.savefig(png, bbox_inches='tight', dpi=300)
+        fig.savefig(pdf, bbox_inches='tight', dpi=300)
+
+    return fig, axes
+
