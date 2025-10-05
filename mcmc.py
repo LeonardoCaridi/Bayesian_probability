@@ -1,6 +1,11 @@
 import numpy as np
 from scipy.special import logsumexp
 
+def beta_function(x, alpha, beta):
+    """
+    Non normalized beta function
+    """
+    return x**(alpha-1)*(1-x)**(beta-1)
 
 def log_prior(theta, bounds):
     """
@@ -11,7 +16,7 @@ def log_prior(theta, bounds):
     for i in range(1, theta.shape[0]):
         if theta[i] < bounds[i][0] or theta[i] > bounds[i][1]:
             return -np.inf
-    
+
     # Controllo esplicito su w per non avere valori 0 o 1     
     if not (0.0 < theta[0] < 1.0):
         return -np.inf
@@ -19,6 +24,9 @@ def log_prior(theta, bounds):
     # w prior = Beta(2,2) = 6*x*(1-x) 
     # La normalizzazione non è necessaria (viene levato il 6)
     logp = np.log(theta[0]) + np.log(1-theta[0])
+
+    # sigma scale invariant p(sigma) -> 1/sigma
+    logp += -np.log(theta[3]) - np.log(theta[4])
     
     return logp  
 
@@ -53,13 +61,7 @@ def proposal_distribution(x, init_cov = None, rng = None):
         covariance = 0.01*np.eye(d)
     else:
         covariance = init_cov
-    """
-    covariance = np.array(([ 1.16001274e-04, 4.34444634e-05, -8.75870281e-06, 3.74859215e-05, -2.68890398e-05],
-                           [ 4.34444634e-05, 1.30336403e-03, -1.12672730e-03, 2.51966524e-04, -1.73614797e-04],
-                           [-8.75870281e-06, -1.12672730e-03, 1.90314140e-03, -9.62649007e-05, 8.67849825e-06],
-                           [ 3.74859215e-05, 2.51966524e-04, -9.62649007e-05, 8.14646898e-04, -1.35645581e-04],
-                           [-2.68890398e-05, -1.73614797e-04, 8.67849825e-06, -1.35645581e-04, 5.28118669e-04]))
-    """
+
     if rng is None:
         rng = np.random
     
@@ -129,9 +131,26 @@ def metropolis_hastings(theta0, x, bounds, init_cov=None, rng = None, sigma_logT
         if(i % (n*0.05) == 0):
             print("iteration {0}: acceptance {1}".format(i,accepted/float(accepted+rejected)))
     overall_rate = accepted / float(n)
-    print("Adaptive Metropolis finished. Acceptance rate = {:.4f}".format(overall_rate))
+    print("Metropolis finished. Acceptance rate = {:.4f}".format(overall_rate))
     
     return samples
+
+def init_theta_from_data(x, bounds):
+    # percentili utili
+    p25 = np.percentile(x, 25)
+    p75 = np.percentile(x, 75)
+    mu1_0 = p25
+    delta_0 = max(0.5, p75 - p25)   # almeno 0.5
+    w0 = 0.5
+    s1_0 = 1.0
+    s2_0 = 1.0
+    # clip to bounds
+    theta0 = np.array([np.clip(w0, bounds[0][0]+1e-6, bounds[0][1]-1e-6),
+                       np.clip(mu1_0, bounds[1][0], bounds[1][1]),
+                       np.clip(delta_0, bounds[2][0]+1e-6, bounds[2][1]),
+                       np.clip(s1_0, bounds[3][0], bounds[3][1]),
+                       np.clip(s2_0, bounds[4][0], bounds[4][1])], dtype=np.float64)
+    return theta0
 
 def next_pow_two(n):
     """
@@ -161,23 +180,6 @@ def autocorrelation(x, norm=True):
         acf /= acf[0]
 
     return acf
-
-def init_theta_from_data(x, bounds):
-    # percentili utili
-    p25 = np.percentile(x, 25)
-    p75 = np.percentile(x, 75)
-    mu1_0 = p25
-    delta_0 = max(0.5, p75 - p25)   # almeno 0.5
-    w0 = 0.5
-    s1_0 = 1.0
-    s2_0 = 1.0
-    # clip to bounds
-    theta0 = np.array([np.clip(w0, bounds[0][0]+1e-6, bounds[0][1]-1e-6),
-                       np.clip(mu1_0, bounds[1][0], bounds[1][1]),
-                       np.clip(delta_0, bounds[2][0]+1e-6, bounds[2][1]),
-                       np.clip(s1_0, bounds[3][0], bounds[3][1]),
-                       np.clip(s2_0, bounds[4][0], bounds[4][1])], dtype=np.float64)
-    return theta0
 
 def autocorr(x, lag):
     return np.corrcoef(np.array([x[:-lag], x[lag:]]))[0,1]

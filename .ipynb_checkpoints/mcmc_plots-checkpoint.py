@@ -690,6 +690,8 @@ def pairplot(
                     # If this is the bottom-left panel force only two xticks
                     if j == 0:
                         ax.set_xticks([0.275,0.325])
+                    if j == 3:
+                        ax.set_xticks([0.8,0.9])
 
                 if j != 0:
                     ax.set_yticklabels([])
@@ -702,7 +704,7 @@ def pairplot(
 
 
     # global title and layout
-    fig.suptitle('Pairplot', fontsize=16, y=0.98)
+    fig.suptitle('Pairplot', fontsize=16, y=0.95)
     plt.tight_layout(rect=[0, 0, 1, 0.96])
 
     if save:
