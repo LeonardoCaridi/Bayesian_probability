@@ -4,7 +4,7 @@ A threshold for the completion of the exercise is to complete points 1a), 2), 3)
 
 Gamma-ray bursts (GRBs) are usually classified into two different categories, according to their duration: short GRBs and long GRBs. The distribution of the burst duration, *T*, is usually modelled as the weighted sum of two log-normal distributions:
 
-![formula1](./formula1.png)
+![formula1](./formula1.svg)
 
 We will make use of Fermi/GBM data available here (LINK). Unless stated, we will neglect measurement uncertainties.
 
@@ -24,7 +24,7 @@ Some authors propose a third class of GRBs, *intermediate*.
 
 Another possibility is to classify GRBs in **soft** and **hard**, according to the hardness ratio
 
-![formula2](./formula2.png)
+![formula2](./formula2.svg)
 
 where *F* is the measured flux in a certain energy interval.
 
