@@ -458,7 +458,7 @@ def plot_distribution(
 
     # 1) build distribution models: stack exp(log_density) for each posterior sample
     distribution_models = np.vstack([
-        np.exp(log_T90_distribution(logT90, samples[i, :], sigma_logT90))
+        np.exp(log_T90_distribution(logT90, samples[i, :], sigma_logT90=0.0))
         for i in range(samples.shape[0])
     ]) # shape -> (n_samples, n_points)
     
@@ -474,7 +474,7 @@ def plot_distribution(
 
     # 4) compute the real distribution if theta_true provided
     if theta_true is not None:
-        real = np.exp(log_T90_distribution(logT90, theta_true, sigma_logT90))
+        real = np.exp(log_T90_distribution(logT90, theta_true, sigma_logT90=0.0))
         real_sorted = real[order]
     
     # 5) plotting
@@ -730,8 +730,8 @@ def pairplot(
                     ax.set_xlabel(label_j)
 
                     # If this is the bottom-left panel force only two xticks
-#                    if j == 0:
-#                        ax.set_xticks([0.275,0.325])
+                    if j == 0 and theta_true is not None:
+                        ax.set_xticks([0.275,0.325])
 #                    if j == 3:
 #                        ax.set_xticks([0.8,0.9])
 

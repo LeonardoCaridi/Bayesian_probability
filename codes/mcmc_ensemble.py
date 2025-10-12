@@ -151,7 +151,7 @@ def thin_chains_by_acf(
             # find first lag >= 1 with acf[lag] < threshold
             found = None
             for lag in range(1, max_available_lag + 1):
-                if acf[lag] < threshold:
+                if acf[lag] <= threshold:
                     found = lag
                     break
             if found is None:
