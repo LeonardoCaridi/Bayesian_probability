@@ -98,7 +98,7 @@ def generate_data(theta_true, N, rng = None, sigma_logT90 = 1.0):
                 rng.normal(theta_true["mu1"], theta_true["sigma1"], size=N),
                 rng.normal(theta_true["mu2"], theta_true["sigma2"], size=N))
 
-    return logT90_gen + rng.normal(0.0, sigma_logT90, size=N)
+    return logT90_gen + rng.normal(0.0, np.median(sigma_logT90), size=N)
 
 def metropolis_hastings(theta0, x, bounds, init_cov=None, rng = None, sigma_logT90 = 0.0, n = 1000):
     """
