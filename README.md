@@ -6,7 +6,7 @@ Gamma-ray bursts (GRBs) are usually classified into two different categories, ac
 
 ![formula1](./formula1.svg)
 
-We will make use of Fermi/GBM data available here (LINK). Unless stated, we will neglect measurement uncertainties.
+We will make use of BATSE data available in GRBs folder. Unless stated, we will neglect measurement uncertainties.
 
 1. **Determine:**
    a. The parameters of the distribution.  
