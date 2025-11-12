@@ -271,7 +271,7 @@ class CollapsedGibbsDP:
             # record assignment (updates zi)
             self.assignment[data_id] = new_cid
 
-    def run(self, n_iters=100, verbose=False, collect_param_samples=False, thin=1):
+    def run(self, n_iters=100, verbose=False):
         """Run the Gibbs sampler.
 
         Parameters
@@ -280,12 +280,6 @@ class CollapsedGibbsDP:
             Number of Gibbs iterations.
         verbose : bool
             Print progress.
-        collect_param_samples : bool
-            If True, after each iteration (and respecting `thin`) draw
-            parameters for all clusters and store them in `self.param_traces_`.
-        thin : int
-            Thinning interval for collecting parameter samples (only used if
-            collect_param_samples is True).
         """
         for it in range(n_iters):
             self.gibbs_step()

@@ -1,6 +1,8 @@
 from typing import Optional, Sequence
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib import cm, colors
 
 
 def trace_plot(samples: np.ndarray, param_names: Optional[Sequence[str]] = None, figsize: Optional[tuple] = None, true_values: Optional[Sequence[float]] = None):
@@ -170,3 +172,116 @@ def autocorr_plot(samples: np.ndarray, param_names: Optional[Sequence[str]] = No
     fig.tight_layout()
     return fig, axes
 
+def plot_clustered_1d(data, assignment, figsize=(7,5), bins=30, alpha=0.6, title=None):
+    """
+    Plot histograms for 1D clustered data.
+
+    Assumptions:
+      - data is a numpy array with shape (n,)
+      - assignment is a numpy array with shape (n,) containing cluster labels
+
+    Parameters:
+      data       : 1D numpy array of data points
+      assignment : 1D numpy array of cluster labels (numeric or convertible to numeric)
+      figsize    : figure size passed to plt.subplots
+      bins       : number of histogram bins (passed to ax.hist)
+      alpha      : transparency for histogram bars
+      title      : optional title string for the axes
+
+    Returns:
+      matplotlib.figure.Figure
+    """
+    # use the provided arrays directly (assumed correct shape)
+    X = data  # shape (n,)
+    assignment = np.asarray(assignment)
+    if X.shape[0] != assignment.shape[0]:
+        raise ValueError("data and assignment must have same number of points.")
+    
+    # get unique cluster labels and count them
+    unique_labels = np.unique(assignment)
+    K = unique_labels.size
+
+    # create figure and axis
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # plot one histogram per cluster
+    for lab in unique_labels:
+        vals = X[assignment == lab]
+        if vals.size == 0:
+            continue
+        # density=False keeps absolute counts; label shows cluster id
+        ax.hist(vals, bins=bins, alpha=alpha, label=f"cluster {int(lab)}", density=False)
+
+    # labels, title and legend
+    ax.set_xlabel("logT90")
+    ax.set_ylabel("count")
+    ax.set_title(title if title is not None else f"1D clustered histogram — {K} clusters")
+    ax.legend(title="Clusters", bbox_to_anchor=(1.01, 1), loc="upper left")
+
+    plt.tight_layout()
+    return fig
+
+
+def plot_clustered_2d(data, assignment, figsize=(7,5), s=30, alpha=0.6, cmap_name='tab10', title=None):
+    """
+    Plot scatter for 2D clustered data.
+
+    Assumptions:
+      - data is a numpy array with shape (n, 2)
+      - assignment is a numpy array with shape (n,) containing cluster labels
+
+    Parameters:
+      data       : 2D numpy array of shape (n,2) with columns [x, y]
+      assignment : 1D numpy array of cluster labels (numeric or convertible to numeric)
+      figsize    : figure size passed to plt.subplots
+      s          : marker size for scatter
+      alpha      : transparency for scatter points
+      cmap_name  : name of matplotlib colormap to use for discrete clusters
+      title      : optional title string for the axes
+
+    Returns:
+      matplotlib.figure.Figure
+    """
+    # use the provided arrays directly (assumed correct shape)
+    X = data  # shape (n,2)
+    assignment = np.asarray(assignment)
+    if X.shape[0] != assignment.shape[0]:
+        raise ValueError("data and assignment must have same number of points.")
+    
+    # unique labels and count
+    unique_labels = np.unique(assignment)
+    K = unique_labels.size
+
+    # prepare figure and axis
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # discrete colormap: normalize labels to colormap range
+    cmap = cm.get_cmap(cmap_name)
+    norm = colors.Normalize(vmin=unique_labels.min(), vmax=unique_labels.max())
+
+    # scatter plot: color is taken from assignment via cmap+norm
+    scatter = ax.scatter(X[:,0], X[:,1], c=assignment, cmap=cmap, norm=norm, s=s, alpha=alpha)
+
+    # axis labels and title
+    ax.set_xlabel("logT90")
+    ax.set_ylabel("HR")
+    ax.set_title(title if title is not None else f"2D clustered scatter — {K} clusters")
+
+    # build legend manually using Line2D proxies so legend markers match cluster colors
+    handles = []
+    labels = []
+    for lab in unique_labels:
+        color = cmap(norm(lab))
+        # create a proxy handle with markerfacecolor set to the cluster color
+        handles.append(Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=7))
+        labels.append(f"cluster {int(lab)}")
+    ax.legend(handles, labels, title="Clusters", bbox_to_anchor=(1.01, 1), loc="upper left")
+
+    # add a colorbar that shows discrete cluster labels (ScalarMappable used to drive the colorbar)
+    mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
+    mappable.set_array([])  # required by colorbar API even if empty
+    cbar = fig.colorbar(mappable, ax=ax, ticks=unique_labels)
+    cbar.set_label("cluster label")
+
+    plt.tight_layout()
+    return fig

@@ -290,13 +290,9 @@ class CollapsedGibbsDP:
             self.suffstats[new_cid].add(x)
             self.assignment[data_id] = new_cid
 
-    def run(self, n_iters=100, verbose=False, collect_param_samples=False, thin=1):
+    def run(self, n_iters=100, verbose=False):
         for it in range(n_iters):
             self.gibbs_step()
-            if collect_param_samples and ((it % thin) == 0):
-                params = self.sample_all_cluster_params()
-                self.param_traces_.append(params)
-                self.counts_trace_.append(Counter(self.assignment))
             if verbose and (it + 1) % max(1, n_iters // 10) == 0:
                 counts = Counter(self.assignment)
                 print(f"Iter {it+1}/{n_iters}   num_clusters={len(self.cluster_ids_)}   counts={dict(counts)}")
