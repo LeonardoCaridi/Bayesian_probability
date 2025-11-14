@@ -5,23 +5,20 @@ with a Normal-Inverse-Wishart (NIW) prior on (mu, Sigma) for each component.
 This file supports multivariate data (e.g. 2D points x = (x1,x2)).
 It implements collapsed Gibbs for cluster assignments using the marginal
 (predictive) Student-t distribution that results from integrating out (mu,Sigma)
-under a NIW prior. It also provides functions to sample (mu, Sigma) from the
-NIW posterior for a given cluster (augmentation / post-hoc draws).
-
-At the top of the file we include the formulas used for the posterior and the
-predictive Student-t (in comments), then the implementation follows.
+under a NIW prior. 
 """
 
 from collections import Counter
 import numpy as np
 from scipy import stats
+from scipy.special import gammaln
 
 
 # =====================
 # Formule (NIW / predictive)
 # =====================
 # Notazione:
-# - D: dimensione dei dati (qui D=2 nel tuo caso)
+# - D: dimensione dei dati (qui D=2)
 # - prior NIW( mu0, kappa0, nu0, Lambda0 )
 #   mu | Sigma ~ N(mu0, Sigma / kappa0)
 #   Sigma     ~ Inv-Wishart(nu0, Lambda0)
@@ -46,11 +43,6 @@ from scipy import stats
 #   p(x) = Gamma((df + D)/2) / ( Gamma(df/2) * (df*pi)^(D/2) * |Sigma_pred|^(1/2) )
 #          * ( 1 + (1/df) (x - mu_n)^T Sigma_pred^{-1} (x - mu_n) )^{-(df + D)/2}
 #
-# Per campionare (mu, Sigma) dalla posteriore (NIW posterior):
-#   - campiona Sigma ~ Inv-Wishart(nu_n, Lambda_n)
-#   - campiona mu ~ N(mu_n, Sigma / kappa_n)
-#
-# Queste sono le relazioni implementate nel codice sottostante.
 
 
 class SuffStat:
@@ -69,8 +61,8 @@ class SuffStat:
     __slots__ = ("N", "sum_x", "sum_xxT")
 
     def __init__(self, D, N=0, sum_x=None, sum_xxT=None):
-        self.N = int(N)
-        self.sum_x = np.zeros(D) if sum_x is None else np.asarray(sum_x, dtype=float).copy()
+        self.N       = int(N)
+        self.sum_x   = np.zeros(D) if sum_x is None else np.asarray(sum_x, dtype=float).copy()
         self.sum_xxT = np.zeros((D, D)) if sum_xxT is None else np.asarray(sum_xxT, dtype=float).copy()
 
     def copy(self):
@@ -78,6 +70,10 @@ class SuffStat:
 
     @property
     def mean(self):
+        # Use np.zeros_like so the zero result matches sum_x's shape, dtype and subclass.
+        # This prevents unexpected broadcasting/dtype/subclass bugs if sum_x is e.g. (D,1) or float32.
+        # If np.zeros is used, the result shape is (D,) instead of (D,1).
+        # In logT90/HR analysis we have (2,) data, so zeros_like is not necessary.
         return self.sum_x / self.N if self.N > 0 else np.zeros_like(self.sum_x)
 
     @property
@@ -86,28 +82,29 @@ class SuffStat:
         if self.N <= 0:
             return np.zeros_like(self.sum_xxT)
         m = self.mean
+        # np.outer(x, x) = x ⊗ x = x x^T
         return self.sum_xxT - self.N * np.outer(m, m)
 
     def add(self, x):
         x = np.asarray(x, dtype=float)
-        self.N += 1
-        self.sum_x += x
+        self.N       += 1
+        self.sum_x   += x
         self.sum_xxT += np.outer(x, x)
 
     def remove(self, x):
         x = np.asarray(x, dtype=float)
         if self.N <= 0:
             raise ValueError("Removing from empty suffstat")
-        self.N -= 1
-        self.sum_x -= x
+        self.N       -= 1
+        self.sum_x   -= x
         self.sum_xxT -= np.outer(x, x)
         if self.N == 0:
             # reset to canonical empty
-            self.sum_x[:] = 0.0
+            self.sum_x[:]      = 0.0
             self.sum_xxT[:, :] = 0.0
 
 
-class CollapsedGibbsDP:
+class CollapsedGibbsDP_ND:
     """Collapsed Gibbs sampler for DP Gaussian mixture with NIW prior.
 
     Prior: mu | Sigma ~ N(mu0, Sigma / kappa0), Sigma ~ Inv-Wishart(nu0, Lambda0)
@@ -117,8 +114,10 @@ class CollapsedGibbsDP:
                     if int k >= 1 -> start with k clusters and randomly assign points
     """
 
-    def __init__(self, data, alpha=1.0, mu0=None, kappa0=1e-6, nu0=None, Lambda0=None, init_clusters=None, rng_seed=1234):
-        self.rng = np.random.default_rng(rng_seed)
+    def __init__(self, data, alpha=1.0, mu0=None, kappa0=1e-6, nu0=None, Lambda0=None, init_clusters=None, rng_gen=None):
+        if rng_gen is None:
+            self.rng    = np.random.default_rng(1234)
+        else: self.rng = rng_gen
         self.data_ = np.asarray(data, dtype=float)
         if self.data_.ndim == 1:
             # treat as 1D column
@@ -127,19 +126,17 @@ class CollapsedGibbsDP:
         self.alpha_ = float(alpha)
 
         # default NIW hyperparams if not provided
-        self.mu0 = np.zeros(self.D) if mu0 is None else np.asarray(mu0, dtype=float)
-        self.kappa0 = float(kappa0)
-        self.nu0 = float(self.D + 2) if nu0 is None else float(nu0)  # must be > D-1
+        if (nu0 is not None and nu0 <= (self.D -1)) or kappa0 <= 0:
+            raise ValueError("nu0 must be > D-1 and kappa0 must be > 0")
+        self.mu0     = np.zeros(self.D) if mu0 is None else np.asarray(mu0, dtype=float)
+        self.kappa0  = float(kappa0)
+        self.nu0     = float(self.D + 2) if nu0 is None else float(nu0)  # must be > D-1
         self.Lambda0 = np.eye(self.D) if Lambda0 is None else np.asarray(Lambda0, dtype=float)
 
         # initial state
         self.cluster_ids_ = []
-        self.suffstats = {}  # dict cluster_id -> SuffStat
-        self.assignment = []
-
-        # traces for parameters
-        self.param_traces_ = []
-        self.counts_trace_ = []
+        self.suffstats    = {}  # dict cluster_id -> SuffStat
+        self.assignment   = []
 
         # start assignments (optionally with a given number of clusters)
         self._init_assignments(init_clusters)
@@ -211,10 +208,6 @@ class CollapsedGibbsDP:
         mu_n, kappa_n, nu_n, Lambda_n = self._posterior_hyperparams(ss)
         D = self.D
         df = nu_n - D + 1.0
-        if df <= 0 or kappa_n <= 0:
-            # fallback to broad multivariate normal
-            cov = (self.Lambda0 + np.eye(D)) * 1e2
-            return stats.multivariate_normal(self.mu0, cov).logpdf(x)
         # scale matrix for Student-t
         Sigma_pred = (kappa_n + 1.0) / (kappa_n * df) * Lambda_n
         # compute logpdf of multivariate Student-t manually
@@ -227,12 +220,12 @@ class CollapsedGibbsDP:
             sign, logdet = np.linalg.slogdet(Sigma_pred)
         inv_S = np.linalg.inv(Sigma_pred)
         quad = float(xm.T.dot(inv_S).dot(xm))
-        log_num = stats.gammaln((df + D) / 2.0)
-        log_den = stats.gammaln(df / 2.0) + (D / 2.0) * np.log(df * np.pi) + 0.5 * logdet
-        log_kernel = - (df + D) / 2.0 * np.log(1.0 + quad / df)
-        return float(log_num - log_den + log_kernel)
+        log_num = gammaln((df + D) / 2.0)
+        log_den = gammaln(df / 2.0) + (D / 2.0) * np.log(df * np.pi) + 0.5 * logdet
+        log_exp = - (df + D) / 2.0 * np.log(1.0 + quad / df)
+        return float(log_num - log_den + log_exp)
 
-    # ---------- cluster bookkeeping ----------
+    # ---------- cluster helpers ----------
     def _create_cluster(self):
         new_id = max(self.cluster_ids_) + 1 if len(self.cluster_ids_) > 0 else 0
         self.cluster_ids_.append(new_id)
@@ -308,20 +301,3 @@ class CollapsedGibbsDP:
             'nu0': self.nu0,
             'Lambda0': self.Lambda0,
         }
-
-
-if __name__ == "__main__":
-    # quick sanity check in 2D
-    np.random.seed(0)
-    x1 = np.random.multivariate_normal([-2.0, 0.0], np.diag([0.5**2, 0.3**2]), size=50)
-    x2 = np.random.multivariate_normal([2.0, 1.0], np.diag([0.7**2, 0.6**2]), size=60)
-    data = np.vstack([x1, x2])
-
-    mu0 = np.zeros(2)
-    Lambda0 = np.eye(2)
-    sampler = CollapsedGibbsDP(data, alpha=1.0, mu0=mu0, kappa0=0.01, nu0=5.0, Lambda0=Lambda0)
-    print("Initial clusters:", len(sampler.cluster_ids_))
-    sampler.run(200, verbose=True, collect_param_samples=True, thin=5)
-    st = sampler.get_state()
-    print("Final num clusters:", len(st['cluster_ids_']))
-    print("Counts:", Counter(st['assignment']))

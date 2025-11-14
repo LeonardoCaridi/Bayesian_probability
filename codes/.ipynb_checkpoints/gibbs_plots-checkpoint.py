@@ -222,66 +222,55 @@ def plot_clustered_1d(data, assignment, figsize=(7,5), bins=30, alpha=0.6, title
     return fig
 
 
-def plot_clustered_2d(data, assignment, figsize=(7,5), s=30, alpha=0.6, cmap_name='tab10', title=None):
+def plot_clustered_2d(data, assignment, figsize=(7,5), s=25, alpha=0.8, title=None):
     """
-    Plot scatter for 2D clustered data.
+    2D clustered scatter plot optimized for <= 10 clusters.
 
-    Assumptions:
-      - data is a numpy array with shape (n, 2)
-      - assignment is a numpy array with shape (n,) containing cluster labels
-
-    Parameters:
-      data       : 2D numpy array of shape (n,2) with columns [x, y]
-      assignment : 1D numpy array of cluster labels (numeric or convertible to numeric)
-      figsize    : figure size passed to plt.subplots
-      s          : marker size for scatter
-      alpha      : transparency for scatter points
-      cmap_name  : name of matplotlib colormap to use for discrete clusters
-      title      : optional title string for the axes
-
-    Returns:
-      matplotlib.figure.Figure
+    Parameters
+    ----------
+    data : array-like, shape (n,2)
+        Points to plot (columns: x, y).
+    assignment : array-like, shape (n,)
+        Cluster labels (can be strings or numbers).
+    figsize : tuple, optional
+        Figure size passed to plt.subplots.
+    s : int, optional
+        Marker size.
+    alpha : float, optional
+        Marker transparency.
+    title : str, optional
+        Plot title.
     """
-    # use the provided arrays directly (assumed correct shape)
-    X = data  # shape (n,2)
+    X = np.asarray(data)
     assignment = np.asarray(assignment)
-    if X.shape[0] != assignment.shape[0]:
-        raise ValueError("data and assignment must have same number of points.")
-    
-    # unique labels and count
-    unique_labels = np.unique(assignment)
-    K = unique_labels.size
 
-    # prepare figure and axis
+    unique, indices = np.unique(assignment, return_inverse=True)
+    K = unique.size
+
+    cmap = plt.get_cmap("tab10")
+    # ListedColormap: colors attribute contains the discrete color list
+    palette = np.array(cmap.colors[:K])
+    # build per-point RGBA array so scatter receives exact colors used in legend
+    colors_per_point = palette[indices]
+
+    # if num_cluster > 10 use 'tab20'
     fig, ax = plt.subplots(figsize=figsize)
+    sc = ax.scatter(X[:,0], X[:,1],
+                    c=colors_per_point,
+                    s=s, alpha=alpha,
+                    edgecolors='k', linewidths=0.3)
 
-    # discrete colormap: normalize labels to colormap range
-    cmap = cm.get_cmap(cmap_name)
-    norm = colors.Normalize(vmin=unique_labels.min(), vmax=unique_labels.max())
+    # legenda
+    cmap = plt.get_cmap("tab10")
+    palette = cmap.colors[:K]
+    handles = [Line2D([0],[0], marker='o', color='w',
+                      markerfacecolor=palette[i], markeredgecolor='k',
+                      markersize=8, linestyle='') for i in range(K)]
+    ax.legend(handles, [str(u) for u in unique],
+              title="Clusters", bbox_to_anchor=(1.01,1), loc="upper left")
 
-    # scatter plot: color is taken from assignment via cmap+norm
-    scatter = ax.scatter(X[:,0], X[:,1], c=assignment, cmap=cmap, norm=norm, s=s, alpha=alpha)
-
-    # axis labels and title
     ax.set_xlabel("logT90")
-    ax.set_ylabel("HR")
-    ax.set_title(title if title is not None else f"2D clustered scatter — {K} clusters")
-
-    # build legend manually using Line2D proxies so legend markers match cluster colors
-    handles = []
-    labels = []
-    for lab in unique_labels:
-        color = cmap(norm(lab))
-        # create a proxy handle with markerfacecolor set to the cluster color
-        handles.append(Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=7))
-        labels.append(f"cluster {int(lab)}")
-    ax.legend(handles, labels, title="Clusters", bbox_to_anchor=(1.01, 1), loc="upper left")
-
-    # add a colorbar that shows discrete cluster labels (ScalarMappable used to drive the colorbar)
-    mappable = cm.ScalarMappable(norm=norm, cmap=cmap)
-    mappable.set_array([])  # required by colorbar API even if empty
-    cbar = fig.colorbar(mappable, ax=ax, ticks=unique_labels)
-    cbar.set_label("cluster label")
-
+    ax.set_ylabel("logHR")
+    ax.set_title(title or f"{K} clusters")
     plt.tight_layout()
     return fig

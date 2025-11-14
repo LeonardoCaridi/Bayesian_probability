@@ -3,9 +3,7 @@ Collapsed Gibbs sampler for a Dirichlet Process Gaussian mixture
 with a Normal-Inverse-Gamma prior on (mu, sigma^2) for each component.
 
 This code keeps the collapsed Gibbs machinery for sampling cluster
-assignments (i.e. integrating out mu and sigma^2 when assigning points),
-but also provides the ability to sample component parameters (mu, sigma)
-conditioned on the current cluster sufficient statistics.
+assignments (i.e. integrating out mu and sigma^2 when assigning points).
 """
 
 from collections import Counter
@@ -94,7 +92,7 @@ class CollapsedGibbsDP:
 
         # NIG prior hyperparameters
         if kappa0<=0 or alpha0<=0 or beta0<=0:
-            raise ValueError("kappa0, alpha0 and beta0 must be >=0")
+            raise ValueError("kappa0, alpha0 and beta0 must be > 0")
         self.mu0    = float(mu0)
         self.kappa0 = float(kappa0)  # should be > 0
         self.alpha0 = float(alpha0)  # > 0 in practice
@@ -105,14 +103,16 @@ class CollapsedGibbsDP:
         self.suffstats    = {}  # dict cluster_id -> SuffStat
         self.assignment   = []
 
-        # traces for diagnostics / parameter sampling
-        self.param_traces_ = []  # list of dicts {cid: (mu, sigma)} saved after iterations
-        self.counts_trace_ = []  # list of Counter objects for cluster sizes
-
         # start assignments (optionally with a given number of clusters)
         self._init_assignments(init_clusters)
 
     def _init_assignments(self, init_clusters=None):
+        """Initialize cluster assignments.
+
+        If init_clusters is None: one cluster with all points.
+        If init_clusters is int k >= 1: create k clusters and assign each point
+        uniformly at random to one of them (using self.rng).
+        """
         n = self.data_.size
         if n == 0:
             return
@@ -194,12 +194,6 @@ class CollapsedGibbsDP:
             raise RuntimeError("Attempt to destroy non-empty cluster")
         del self.suffstats[cid]
         self.cluster_ids_.remove(cid)
-
-    def _prune_empty_clusters(self):
-        # remove clusters with N == 0
-        for cid in list(self.cluster_ids_):
-            if self.suffstats[cid].N == 0:
-                self._destroy_cluster(cid)
 
     # ---------- assignment sampling (collapsed) ----------
     def _log_cluster_assignment_score(self, cid):
