@@ -262,10 +262,10 @@ def plot_marginal_distributions(
             ax.set_yticklabels([])
 
         # Annotation box showing summaries
-        txt = f"med={q50:.3g}\n5–95%=[{q5:.3g}, {q95:.3g}]"
+        txt = f"med={q50:.3f}\np₅={q5:.3f}\np₉₅={q95:.3f}"
         ax.text(0.98, 0.95, txt, transform=ax.transAxes,
                 ha='right', va='top', fontsize=12,
-                bbox=dict(boxstyle='round,pad=0.45', facecolor='white', alpha=0.95, edgecolor='none'),
+                bbox=dict(boxstyle='round,pad=0.45', facecolor='white', alpha=0.8, edgecolor='none'),
                 zorder=20)
 
         ax.spines['top'].set_visible(False)
