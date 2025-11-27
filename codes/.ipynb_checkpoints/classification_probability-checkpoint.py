@@ -383,7 +383,7 @@ def distribution_probability_threshold(
 
     plt.xlabel('Probability at varying threshold')
     plt.ylabel('Density')
-    plt.title(r'Distribution of $\frac{1}{N} \sum_i$P(short| $thr_j$, $θ_i$) and $\frac{1}{N} \sum_i$P(long| $thr_j$, $θ_i$)')
+    plt.title(r'Distribution of $\frac{1}{M} \sum\,{}_j\,$P(short| $thr_k$, $θ_j$) and $\frac{1}{M} \sum\,{}_j\,$P(long| $thr_k$, $θ_j$)')
     
     plt.legend()
     if save:
